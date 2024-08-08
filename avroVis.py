@@ -6,13 +6,11 @@ import numpy as np
 from scipy.signal import find_peaks, butter, filtfilt
 import plotly.graph_objects as go
 
-
 # get avro records
 def getRecords(avroPath):
     with open(avroPath, "rb") as f:
         records = [r for r in avroreader(f)]
     return records
-
 
 # get bvp values from avro file
 def get_bvp_values(avroPath: str):
@@ -20,20 +18,17 @@ def get_bvp_values(avroPath: str):
     bvp_values = users[0]["rawData"]["bvp"]["values"]
     return bvp_values
 
-
 # get temp values from avro file
 def get_temp_values(avroPath: str):
     users = getRecords(avroPath)
     temp = users[0]['rawData']['temperature']['values']
     return temp
 
-
 # get eda values from avro file
 def get_eda_values(avroPath: str):
     users = getRecords(avroPath)
     eda = users[0]['rawData']['eda']['values']
     return eda
-
 
 # get sampling frequency from avro file
 def get_sampling_frequency(avroPath: str, data_type: str):
@@ -45,7 +40,6 @@ def get_sampling_frequency(avroPath: str, data_type: str):
     elif data_type == "EDA":
         sampling_frequency = users[0]["rawData"]["eda"]["samplingFrequency"]
     return sampling_frequency
-
 
 # plot bvp values over time in seconds
 def plot_bvp_values(bvp_values, sampling_rate):
@@ -94,7 +88,6 @@ def plot_bvp_values(bvp_values, sampling_rate):
     )
     return fig
 
-
 # plot temperature values over time in seconds
 def plot_temp_values(temp_values, sampling_rate):
     time_values = [i / sampling_rate for i in range(len(temp_values))]
@@ -115,7 +108,6 @@ def plot_temp_values(temp_values, sampling_rate):
         margin=dict(l=0, r=0, t=50, b=0),
     )
     return fig
-
 
 # plot eda values over time in seconds
 def plot_eda_values(eda_values, sampling_rate):
@@ -138,8 +130,8 @@ def plot_eda_values(eda_values, sampling_rate):
     )
     return fig
 
-
-# calculate bpm from bvp values
+#TODO
+# calculate bpm from bvp values and return bpm values over time (need work)
 def calc_bpm(bvp_values, sampling_rate):
     def butter_bandpass(lowcut, highcut, fs, order=5):
         nyquist = 0.5 * fs
@@ -157,8 +149,41 @@ def calc_bpm(bvp_values, sampling_rate):
     peaks, _ = find_peaks(filtered_bvp, distance=sampling_rate / 2)
     peak_intervals = np.diff(peaks) / sampling_rate
     bpm = 60 / peak_intervals
-    return np.mean(bpm)
+    time_values = [peaks[i] / (sampling_rate * 60) for i in range(1, len(peaks))]  # Convert to minutes
+    return bpm, time_values
 
+#TODO
+# plot bpm values over time (needs work)
+def plot_bpm_values(bpm_values, time_values):
+    fig = go.Figure()
+    fig.add_trace(
+        go.Scatter(
+            x=time_values,
+            y=bpm_values,
+            mode="lines",
+            name="BPM Values",
+            line=dict(color="orange"),
+        )
+    )
+    fig.update_layout(
+        title="BPM Values Over Time",
+        xaxis_title="Time (minutes)",
+        yaxis_title="BPM",
+        margin=dict(l=0, r=0, t=50, b=0),
+    )
+    return fig
+
+#TODO
+# calculate statistics for values (need work)
+def calc_statistics(values):
+    # Filter out low signal values for BVP
+    if graph_dropdown.value == "BVP":
+        values = [v for v in values if v < -0.02 or v > 0.02]
+
+    mean_val = np.mean(values)
+    median_val = np.median(values)
+    std_val = np.std(values)
+    return mean_val, median_val, std_val
 
 # handle file upload event
 def handle_upload(event: UploadEventArguments):
@@ -180,45 +205,49 @@ def handle_upload(event: UploadEventArguments):
 
     update_plot()
 
-
 # update plot based on selected graph type
 def update_plot():
     global sampling_rate
 
     graph_type = graph_dropdown.value
-    # Ensure sampling frequency is calculated and printed each time update_plot is called
+    # print sampling frequency for each plot
     sampling_rate = get_sampling_frequency(current_file, graph_type)
     print(f"Updated Sampling Frequency for {graph_type}: {sampling_rate}")
 
     if graph_type == "BVP":
         fig = plot_bvp_values(bvp_values, sampling_rate)
-        bpm = calc_bpm(bvp_values, sampling_rate)
-        ui.label(f"BVP Graph for {os.path.basename(current_file)}: Average BPM: {bpm:.2f}")
+        bpm_values, time_values = calc_bpm(bvp_values, sampling_rate)
+        fig_bpm = plot_bpm_values(bpm_values, time_values)
+        mean_bvp, median_bvp, std_bvp = calc_statistics(bvp_values)
+        ui.label(f"BVP Graph for {os.path.basename(current_file)}: Mean: {mean_bvp:.2f}, Median: {median_bvp:.2f}, Std: {std_bvp:.2f}")
+        ui.plotly(fig_bpm).classes("w-full h-100")
     elif graph_type == "Temperature":
         fig = plot_temp_values(temp_values, sampling_rate)
-        ui.label(f"Temperature Graph for {os.path.basename(current_file)}:")
+        mean_temp, median_temp, std_temp = calc_statistics(temp_values)
+        ui.label(f"Temperature Graph for {os.path.basename(current_file)}: Mean: {mean_temp:.2f}, Median: {median_temp:.2f}, Std: {std_temp:.2f}")
     elif graph_type == "EDA":
         fig = plot_eda_values(eda_values, sampling_rate)
-        ui.label(f"EDA Graph for {os.path.basename(current_file)}:")
+        mean_eda, median_eda, std_eda = calc_statistics(eda_values)
+        ui.label(f"EDA Graph for {os.path.basename(current_file)}: Mean: {mean_eda:.2f}, Median: {median_eda:.2f}, Std: {std_eda:.2f}")
 
     ui.plotly(fig).classes("w-full h-100")
-
 
 # enable dark mode
 ui.dark_mode().enable()
 
 # create the main ui elements
-ui.upload(on_upload=handle_upload, auto_upload=True).classes("max-w-full").style(
-    "color:#888"
-)
-ui.label("Select Avro File(s)")
+with ui.column().classes("w-full") as main_layout:
+    ui.label("Avro Visualization").classes("text-2xl font-bold mb-2")
+    ui.label("Select an Avro file and choose the type of data you want to visualize.").classes("mb-4")
+    ui.label("Select Avro File(s)").classes("mb-2")
 
-# dropdown menu to select the type of graph
-graph_dropdown = ui.select(
-    options=["BVP", "Temperature", "EDA"],
-    value="BVP",
-    on_change=update_plot
-).classes("w-full")
+    with ui.row().classes("items-center mb-4"):
+        ui.upload(on_upload=handle_upload, auto_upload=True).classes("max-w-full").style("color:#888")
+        graph_dropdown = ui.select(
+            options=["BVP", "Temperature", "EDA"],
+            value="BVP",
+            on_change=update_plot
+        ).classes("w-full ml-4")
 
 # start the NiceGUI app
 ui.run()
